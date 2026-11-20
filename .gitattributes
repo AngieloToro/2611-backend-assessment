@@ -1,0 +1,8 @@
+# Normalise text files, but never touch provider samples: signatures are computed over their exact bytes
+# (LF, no trailing newline). A CRLF checkout on Windows would break every test vector.
+* text=auto
+reference/providers/**/samples/* -text
+
+mvnw text eol=lf
+*.sh text eol=lf
+*.cmd text eol=crlf
