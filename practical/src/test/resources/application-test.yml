@@ -1,0 +1,12 @@
+# Sandbox test secrets published in reference/providers/*/WEBHOOK_SPEC.md. Not valid in production.
+payments:
+  intake:
+    publish-timeout: 500ms
+    max-body-bytes: 65536
+    providers:
+      quetzal:
+        secrets:
+          - qz_test_whsec_4f8a1c2e9b7d
+      andina:
+        secrets:
+          - andina_test_secret_7c3e19ab
