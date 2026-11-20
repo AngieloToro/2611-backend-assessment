@@ -1,0 +1,255 @@
+openapi: 3.0.3
+info:
+  title: Meridian Mutual - Premium Payment Webhooks
+  version: 1.0.0
+  description: |
+    Webhook endpoints that payment providers call, published through the Meridian API Manager.
+
+    * Each endpoint accepts the provider's **native** payload and signature scheme; Meridian adapts to the
+      provider, not the other way round. Request schemas below document the fields Meridian relies on and
+      allow additional properties (providers may add fields at any time).
+    * **Authentication is the provider's HMAC signature** over the raw request body. Providers cannot obtain
+      tokens from Meridian's IdP, so these endpoints have no OAuth security requirement. The API Manager must
+      forward the body byte for byte.
+    * A `2xx` response means the notification is **durably accepted** (enqueued). Any other response means it
+      was not accepted and the provider should retry according to its own policy.
+    * Responses never echo the request payload.
+servers:
+  - url: https://api.meridian.example/payments/webhooks/v1
+    description: Production (API Manager)
+  - url: https://api-test.meridian.example/payments/webhooks/v1
+    description: Test (API Manager)
+security: []
+tags:
+  - name: Quetzal Pagos (MX)
+  - name: Andina Pay (CO)
+  - name: Austral Pagos (CL)
+paths:
+  /quetzal:
+    post:
+      tags: [Quetzal Pagos (MX)]
+      operationId: receiveQuetzalNotification
+      summary: Receive a Quetzal Pagos event (API version 2025-06-01)
+      parameters:
+        - name: Quetzal-Signature
+          in: header
+          required: true
+          description: |
+            `t=<unix_seconds>,v1=<hex hmac-sha256>` where the HMAC is computed over `<t>.<raw_body>`.
+            May contain several `v1` values during secret rotation; any match is valid.
+            Rejected when |now - t| > 300 s.
+          schema:
+            type: string
+            pattern: '^t=\d+(,v1=[0-9a-f]{64})+$'
+          example: t=1795888803,v1=2d07770582c02f15235ac4e027b7732beef86be103c574a1c3b988a4275f5031
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuetzalEvent'
+      responses:
+        '200': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/InvalidPayload' }
+        '401': { $ref: '#/components/responses/InvalidSignature' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '503': { $ref: '#/components/responses/NotAccepted' }
+  /andina:
+    post:
+      tags: [Andina Pay (CO)]
+      operationId: receiveAndinaNotification
+      summary: Receive an Andina Pay notification (API version 2.3)
+      parameters:
+        - name: X-Andina-Timestamp
+          in: header
+          required: true
+          description: ISO-8601 timestamp with offset. Part of the signed content. Rejected when it differs from now by more than 600 s.
+          schema: { type: string, format: date-time }
+          example: '2026-11-28T14:03:11-05:00'
+        - name: X-Andina-Signature
+          in: header
+          required: true
+          description: Base64 of HMAC-SHA256 over `<X-Andina-Timestamp>.<raw_body>`.
+          schema: { type: string, format: byte }
+          example: MFQjfviySi6CjqbWtQcy5spKtXxHIxAvmg5W3PTzPJk=
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AndinaNotification'
+      responses:
+        '200': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/InvalidPayload' }
+        '401': { $ref: '#/components/responses/InvalidSignature' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '503': { $ref: '#/components/responses/NotAccepted' }
+  /austral:
+    post:
+      tags: [Austral Pagos (CL)]
+      operationId: receiveAustralNotification
+      summary: Receive an Austral Pagos event (designed; implementation planned after Part B)
+      x-implementation-status: planned
+      parameters:
+        - name: X-Austral-Signature
+          in: header
+          required: true
+          description: Lowercase hex HMAC-SHA256 over the raw body. No timestamp is signed; replays are neutralised by `eventId` deduplication.
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AustralEvent'
+      responses:
+        '200': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/InvalidPayload' }
+        '401': { $ref: '#/components/responses/InvalidSignature' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '503': { $ref: '#/components/responses/NotAccepted' }
+components:
+  parameters:
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Set by the API Manager. If absent or not a UUID, the intake generates one.
+      schema: { type: string, format: uuid }
+  responses:
+    Accepted:
+      description: Notification durably accepted, or acknowledged and ignored (unknown event type).
+      headers:
+        X-Correlation-Id:
+          schema: { type: string, format: uuid }
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Acknowledgement'
+    InvalidPayload:
+      description: Signature is valid but the payload cannot be interpreted. Not accepted.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    InvalidSignature:
+      description: Missing, malformed or invalid signature, or timestamp outside the tolerance. Not accepted.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PayloadTooLarge:
+      description: Body larger than 64 KB. Not accepted.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotAccepted:
+      description: Meridian could not durably accept the notification (e.g. broker unavailable). The provider must retry.
+      headers:
+        Retry-After:
+          schema: { type: integer, example: 30 }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    Acknowledgement:
+      type: object
+      required: [status, correlationId]
+      properties:
+        status:
+          type: string
+          enum: [ACCEPTED, IGNORED]
+        correlationId:
+          type: string
+          format: uuid
+    Problem:
+      description: RFC 9457 problem details. Never contains request data.
+      type: object
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        correlationId: { type: string, format: uuid }
+    QuetzalEvent:
+      type: object
+      required: [id, type, created, data]
+      additionalProperties: true
+      properties:
+        id: { type: string, example: evt_01JDQ3K8M2X7 }
+        type: { type: string, example: charge.succeeded, description: 'Handled: charge.succeeded, charge.failed, charge.refunded. Others are acknowledged and ignored.' }
+        api_version: { type: string, example: '2025-06-01' }
+        created: { type: integer, format: int64 }
+        data:
+          type: object
+          required: [charge]
+          properties:
+            charge:
+              type: object
+              required: [id, amount, currency, reference]
+              additionalProperties: true
+              properties:
+                id: { type: string }
+                amount: { type: integer, format: int64, description: Minor units }
+                amount_refunded: { type: integer, format: int64 }
+                currency: { type: string, example: mxn }
+                status: { type: string }
+                failure_code: { type: string }
+                reference: { type: string }
+                paid_at: { type: integer, format: int64, nullable: true }
+                refunded_at: { type: integer, format: int64, nullable: true }
+                payment_method:
+                  type: object
+                  properties:
+                    type: { type: string }
+                    token: { type: string, description: Not stored or forwarded by Meridian }
+                customer:
+                  type: object
+                  description: Personal data. Discarded by Meridian at intake.
+    AndinaNotification:
+      type: object
+      required: [notificacion_id, fecha_notificacion, transaccion]
+      additionalProperties: true
+      properties:
+        notificacion_id: { type: string, description: Changes on every retry }
+        fecha_notificacion: { type: string, format: date-time }
+        transaccion:
+          type: object
+          required: [id, estado, valor, moneda, referencia, fecha_transaccion]
+          additionalProperties: true
+          properties:
+            id: { type: string }
+            estado: { type: string, example: APROBADA, description: 'Handled: PENDIENTE, APROBADA, RECHAZADA, REVERSADA. Others are acknowledged and ignored.' }
+            valor: { type: string, pattern: '^\d+(\.\d{1,2})?$', example: '185000.00' }
+            moneda: { type: string, example: COP }
+            referencia: { type: string, description: 'Free text since API 2.3; normalised by Meridian' }
+            medio_pago: { type: string, example: PSE }
+            fecha_transaccion: { type: string, format: date-time }
+            motivo_reverso: { type: string }
+            canal: { type: string }
+            pagador:
+              type: object
+              description: Personal data. Discarded by Meridian at intake.
+    AustralEvent:
+      type: object
+      required: [eventId, eventType, payment]
+      additionalProperties: true
+      properties:
+        eventId: { type: string }
+        eventType: { type: string, example: PAYMENT_CONFIRMED }
+        sentAt: { type: string, format: date-time }
+        payment:
+          type: object
+          required: [paymentId, amount, currency, policyNumber, occurredAt]
+          properties:
+            paymentId: { type: string }
+            amount: { type: string, example: '45990' }
+            currency: { type: string, example: CLP }
+            policyNumber: { type: string }
+            occurredAt: { type: string, format: date-time }
+            payer:
+              type: object
+              description: Personal data. Discarded by Meridian at intake.

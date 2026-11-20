@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.meridian.example/payments/premium-payment/1.0.0",
+  "title": "PremiumPaymentStatusChanged",
+  "description": "Canonical payment event (CloudEvents 1.0 structured JSON). The major version is part of 'type' (…status-changed.v1); the exact schema version (semver) is in 'dataschema'. Minor versions only add optional fields; consumers must ignore unknown fields. Contains no payer personal data.",
+  "type": "object",
+  "required": ["specversion", "id", "source", "type", "dataschema", "time", "datacontenttype", "correlationid", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "specversion": { "const": "1.0" },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Deterministic UUID v5 of data.dedupKey: the same business event always has the same id, including on replays."
+    },
+    "source": {
+      "type": "string",
+      "pattern": "^/meridian/payments/[a-z0-9-]+$",
+      "examples": ["/meridian/payments/andina-co"]
+    },
+    "type": { "const": "com.meridian.payments.premium-payment.status-changed.v1" },
+    "dataschema": {
+      "type": "string",
+      "pattern": "^https://schemas\\.meridian\\.example/payments/premium-payment/1\\.[0-9]+\\.[0-9]+$"
+    },
+    "time": { "$ref": "#/$defs/utcTimestamp", "description": "Equal to data.occurredAt." },
+    "datacontenttype": { "const": "application/json" },
+    "correlationid": {
+      "type": "string",
+      "format": "uuid",
+      "description": "CloudEvents extension attribute. End-to-end correlation id (NFR7)."
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dedupKey", "paymentKey", "provider", "country", "providerTransactionId", "providerEventId",
+        "status", "providerStatus", "amount", "policyNumber", "rawReference", "referenceResolution",
+        "paymentMethod", "occurredAt", "receivedAt"
+      ],
+      "properties": {
+        "dedupKey": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Identifies the business event across provider retries, e.g. ANDINA:TRX-CO-5521907:APROBADA.",
+          "examples": ["QUETZAL:evt_01JDQ3K8M2X7", "ANDINA:TRX-CO-5521907:APROBADA"]
+        },
+        "paymentKey": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[A-Z]+:.+$",
+          "description": "{PROVIDER}:{providerTransactionId}. Written to Premium_Payment__c.Payment_Key__c."
+        },
+        "provider": { "type": "string", "enum": ["QUETZAL", "ANDINA", "AUSTRAL"] },
+        "country": { "type": "string", "enum": ["MX", "CO", "CL"] },
+        "providerTransactionId": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "providerEventId": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "status": { "type": "string", "enum": ["PENDING", "CAPTURED", "FAILED", "REFUNDED"] },
+        "providerStatus": { "type": "string", "description": "Original provider state or event type, for traceability." },
+        "amount": { "$ref": "#/$defs/money" },
+        "refundedAmount": { "$ref": "#/$defs/money", "description": "Present only when status is REFUNDED." },
+        "policyNumber": {
+          "type": ["string", "null"],
+          "pattern": "^POL-(MX|CO|CL)-[0-9]{9}$",
+          "description": "Normalised policy number, or null when the reference could not be resolved."
+        },
+        "rawReference": { "type": "string", "maxLength": 100, "description": "Payment reference exactly as received." },
+        "referenceResolution": { "type": "string", "enum": ["EXACT", "NORMALISED", "UNRESOLVED"] },
+        "paymentMethod": { "type": "string", "enum": ["CARD", "BANK_TRANSFER", "CASH", "OTHER"] },
+        "reasonCode": { "type": "string", "maxLength": 80, "description": "Provider failure or reversal reason code." },
+        "occurredAt": { "$ref": "#/$defs/utcTimestamp", "description": "Provider time of the state change. Drives ordering." },
+        "receivedAt": { "$ref": "#/$defs/utcTimestamp", "description": "Time Meridian accepted the notification." },
+        "paymentVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Monotonic per paymentKey. Set by the processor; absent on the inbound queue, always present on the payment-events topic."
+        }
+      },
+      "if": { "properties": { "status": { "const": "REFUNDED" } } },
+      "then": { "required": ["refundedAmount"] },
+      "else": { "not": { "required": ["refundedAmount"] } }
+    }
+  },
+  "$defs": {
+    "utcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "money": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "currency"],
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]{1,3})?$",
+          "description": "Decimal amount in major units, as a string, scaled to the ISO 4217 minor units of the currency (MXN 2, COP 2, CLP 0). Never a binary float."
+        },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+      }
+    }
+  }
+}
