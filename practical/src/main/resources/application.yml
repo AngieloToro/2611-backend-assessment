@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: payments-intake
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: 8080
+  tomcat:
+    max-swallow-size: 128KB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  pattern:
+    # Correlation id on every line; request bodies are never logged (NFR6).
+    level: "%5p [correlationId=%X{correlationId:-}]"
+
+payments:
+  intake:
+    publish-timeout: 2s
+    max-body-bytes: 65536
+    duplicate-window: 7d
+    # Secrets are injected from Key Vault as environment variables, never written here:
+    #   PAYMENTS_INTAKE_PROVIDERS_QUETZAL_SECRETS_0, PAYMENTS_INTAKE_PROVIDERS_QUETZAL_SECRETS_1 (rotation)
+    #   PAYMENTS_INTAKE_PROVIDERS_ANDINA_SECRETS_0,  PAYMENTS_INTAKE_PROVIDERS_ANDINA_SECRETS_1  (rotation)
