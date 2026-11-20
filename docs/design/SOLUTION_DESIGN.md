@@ -165,6 +165,7 @@ The event uses the **CloudEvents 1.0** envelope (an open, provider-neutral stand
 | `dataschema` | URI | `…/premium-payment/1.2.0` | Exact schema version (semver). Minor versions only add optional fields. |
 | `time` | string (UTC) | `2026-11-28T19:03:09Z` | Time of the state change at the provider (= `data.occurredAt`). |
 | `correlationid` | string | `7f3a0c2e-…` | CloudEvents extension, end-to-end trace id (NFR7). |
+| `data.dedupKey` | string | `ANDINA:TRX-CO-5521907:APROBADA` | Identifies the business event across provider retries (section 5.1). |
 | `data.paymentKey` | string | `ANDINA:TRX-CO-5521907` | `{PROVIDER}:{providerTransactionId}`. Becomes `Payment_Key__c`. |
 | `data.provider` | enum | `ANDINA` | `QUETZAL`, `ANDINA`, `AUSTRAL` (extensible). |
 | `data.country` | enum | `CO` | ISO 3166-1 alpha-2. |
