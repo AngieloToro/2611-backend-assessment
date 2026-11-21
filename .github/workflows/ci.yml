@@ -57,6 +57,17 @@ jobs:
         run: npx --yes @redocly/cli@1.25.15 lint docs/api/webhooks.openapi.yaml
       # The canonical event JSON Schema is validated against real events by CanonicalEventContractTest (build-test).
 
+  workflow-lint:
+    name: Workflow lint (actionlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint GitHub Actions workflows
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color
+
   iac:
     name: Bicep build and lint
     runs-on: ubuntu-latest

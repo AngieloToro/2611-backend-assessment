@@ -62,6 +62,9 @@ jobs:
   deploy-dev:
     name: Deploy dev
     needs: build-image
+    permissions:
+      contents: read
+      id-token: write # required by azure/login (OIDC) inside the reusable workflow
     uses: ./.github/workflows/deploy-environment.yml
     with:
       environment: dev
@@ -71,6 +74,9 @@ jobs:
   deploy-test:
     name: Deploy test
     needs: [build-image, deploy-dev]
+    permissions:
+      contents: read
+      id-token: write # required by azure/login (OIDC) inside the reusable workflow
     uses: ./.github/workflows/deploy-environment.yml
     with:
       environment: test
@@ -80,6 +86,9 @@ jobs:
   plan-prod:
     name: Plan prod (what-if, no approval needed)
     needs: [build-image, deploy-test]
+    permissions:
+      contents: read
+      id-token: write # required by azure/login (OIDC) inside the reusable workflow
     uses: ./.github/workflows/deploy-environment.yml
     with:
       environment: prod-plan
@@ -91,6 +100,9 @@ jobs:
   deploy-prod:
     name: Deploy prod (manual approval)
     needs: [build-image, plan-prod]
+    permissions:
+      contents: read
+      id-token: write # required by azure/login (OIDC) inside the reusable workflow
     uses: ./.github/workflows/deploy-environment.yml
     with:
       environment: prod

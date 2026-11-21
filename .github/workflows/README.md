@@ -12,6 +12,7 @@
 |---|---|---|
 | Build, unit, contract and integration tests | Maven `verify`, JUnit 5 | Proves signature verification against the providers' **test vectors**, idempotency, the 503-before-acceptance rule and the absence of PII in logs. `CanonicalEventContractTest` fails if an event stops matching the published JSON Schema. The enforcer fails fast on a wrong JDK. |
 | API contract lint | Redocly CLI | Providers integrate against the OpenAPI document; an invalid contract is a broken integration. |
+| Workflow lint | actionlint | Pipelines are code too: invalid expressions, permissions that a reusable workflow cannot receive, or typos in job dependencies otherwise only surface when GitHub refuses to run the workflow (this happened once while building this repository). |
 | IaC build and lint | Bicep CLI (`lint`, `build`, `build-params` for dev/test/prod) | Catches schema errors, insecure parameters and unsupported properties before any deployment. **Warnings fail the build**: during development the linter caught a property not supported by the API version in use. |
 | Secret scanning (full history) | gitleaks | PR-214 committed a live webhook secret. A secret in Git cannot be revoked by deleting it, so this has to be blocked before merge. Only documented fictional test secrets are allow-listed (`.gitleaks.toml`). |
 | Static analysis | CodeQL (security-and-quality) | Injection, unsafe deserialisation and crypto misuse in an internet-facing service. |
