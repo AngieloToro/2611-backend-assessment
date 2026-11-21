@@ -1,9 +1,8 @@
 package com.meridian.payments.intake.provider;
 
-import java.io.IOException;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Tolerant reader over a provider payload: unknown fields are ignored (e.g. Andina 2.3 {@code canal}), required
@@ -11,7 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 public final class JsonPayload {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final JsonMapper MAPPER = JsonMapper.builder().build();
     private static final int MAX_ID_LENGTH = 80;
 
     private final JsonNode root;
@@ -21,15 +20,16 @@ public final class JsonPayload {
     }
 
     public static JsonPayload parse(byte[] rawBody) {
+        JsonNode root;
         try {
-            JsonNode root = MAPPER.readTree(rawBody);
-            if (root == null || !root.isObject()) {
-                throw new InvalidPayloadException("body is not a JSON object");
-            }
-            return new JsonPayload(root);
-        } catch (IOException e) {
+            root = MAPPER.readTree(rawBody);
+        } catch (JacksonException e) {
             throw new InvalidPayloadException("body is not valid JSON");
         }
+        if (root == null || !root.isObject()) {
+            throw new InvalidPayloadException("body is not a JSON object");
+        }
+        return new JsonPayload(root);
     }
 
     /** Required non-blank text, max 80 characters (identifiers end up in Salesforce Text(80) fields). */
@@ -43,20 +43,20 @@ public final class JsonPayload {
 
     public String requiredText(String path) {
         JsonNode node = node(path);
-        if (node == null || !node.isTextual() || node.asText().isBlank()) {
+        if (node == null || !node.isString() || node.asString().isBlank()) {
             throw new InvalidPayloadException(path + " is missing or not text");
         }
-        return node.asText();
+        return node.asString();
     }
 
     public String optionalText(String path) {
         JsonNode node = node(path);
-        return node != null && node.isTextual() ? node.asText() : null;
+        return node != null && node.isString() ? node.asString() : null;
     }
 
     public long requiredLong(String path) {
         JsonNode node = node(path);
-        if (node == null || !node.canConvertToLong() || !node.isIntegralNumber()) {
+        if (node == null || !node.isIntegralNumber() || !node.canConvertToLong()) {
             throw new InvalidPayloadException(path + " is missing or not an integer");
         }
         return node.asLong();
@@ -67,7 +67,7 @@ public final class JsonPayload {
         if (node == null || node.isNull()) {
             return null;
         }
-        if (!node.isIntegralNumber()) {
+        if (!node.isIntegralNumber() || !node.canConvertToLong()) {
             throw new InvalidPayloadException(path + " is not an integer");
         }
         return node.asLong();

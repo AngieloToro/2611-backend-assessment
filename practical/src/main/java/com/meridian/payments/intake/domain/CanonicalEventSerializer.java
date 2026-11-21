@@ -1,22 +1,20 @@
 package com.meridian.payments.intake.domain;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
 
-/** Serialises canonical events with ISO-8601 UTC timestamps. */
+/**
+ * Serialises canonical events. Jackson 3 supports java.time natively and writes dates as ISO-8601 strings
+ * (UTC instants end with {@code Z}) by default.
+ */
 public class CanonicalEventSerializer {
 
-    private final JsonMapper mapper = JsonMapper.builder()
-            .addModule(new JavaTimeModule())
-            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-            .build();
+    private final JsonMapper mapper = JsonMapper.builder().build();
 
     public byte[] toJson(CanonicalPaymentEvent event) {
         try {
             return mapper.writeValueAsBytes(event);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("Canonical event cannot be serialised", e);
         }
     }

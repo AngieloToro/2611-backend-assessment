@@ -7,10 +7,13 @@ Intake of payment notifications for **Quetzal Pagos (Mexico)** and **Andina Pay 
 | Item | Version | Why |
 |---|---|---|
 | Java | 21 (LTS) | Records, sealed interfaces, pattern matching, virtual threads |
-| Spring Boot | 3.3.5 (Spring Web, Actuator) | HTTP endpoint, configuration binding, health probes, Micrometer metrics |
+| Spring Boot | 4.1.2 (Spring MVC, Actuator; Spring Framework 7, Jackson 3, Tomcat 11) | HTTP endpoint, configuration binding, health probes, Micrometer metrics |
 | Maven | 3.9.9 through the Maven Wrapper (`mvnw`) | No local Maven installation needed |
-| JUnit 5, AssertJ, Mockito | managed by Spring Boot | Unit and integration tests |
-| networknt json-schema-validator | 1.5.2 (test only) | Validates produced events against the JSON Schema contract |
+| JUnit, AssertJ, Mockito | managed by Spring Boot | Unit and integration tests |
+| networknt json-schema-validator | 1.5.9 (test only) | Validates produced events against the JSON Schema contract |
+| Runtime image | `gcr.io/distroless/java21-debian13:nonroot` | No shell or package manager, non-root |
+
+**Why Spring Boot 4 instead of 3**: the CI vulnerability scan found fixable HIGH/CRITICAL CVEs in the Spring Boot 3 dependency tree, including a critical Spring MVC issue fixed only in Spring Framework 7. Details in [ADR-0002](../docs/adr/0002-stack-and-data-store.md). Trivy result at submission: **0 fixable HIGH/CRITICAL** in the JAR and in the base image.
 
 The choice of Java instead of Mule is justified in [ADR-0002](../docs/adr/0002-stack-and-data-store.md). Every dependency is open source; no enterprise credentials are needed to build or test.
 

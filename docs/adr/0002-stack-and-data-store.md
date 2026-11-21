@@ -25,7 +25,7 @@ Forces:
 - Pros: the reference stack; DataWeave is excellent for mapping; native connectors for Service Bus and Salesforce; the platform team already operates it.
 - Cons: ordering and dedup need a transactional store anyway, which Mule does not provide; the Salesforce and Service Bus connectors are enterprise-licensed; per-vCore licensing cost; MUnit and enterprise dependencies need credentials, so CI cannot be shown publicly; less fine-grained control of transactions (inbox + outbox in one DB transaction).
 
-#### Option R2 — Java 21 + Spring Boot 3 on Azure Container Apps
+#### Option R2 — Java 21 + Spring Boot on Azure Container Apps
 - Pros: full control of signature verification on raw bytes, DB transactions and the outbox; open-source stack with no licences; always-warm replicas (no cold start against the 5 s timeout); KEDA scaling on HTTP concurrency and on queue length; managed identity everywhere; JUnit 5 tests run anywhere; the team's Java prototype shows existing Java skills.
 - Cons: more code to write and own than DataWeave mappings; the squad runs a service outside the integration platform's runtime (it is still fronted by the API Manager, as the scenario allows).
 
@@ -53,7 +53,8 @@ Forces:
 
 ## Decision
 
-- **Runtime: Java 21 + Spring Boot 3 on Azure Container Apps (R2)**, four small apps built from one repository: `payments-intake`, `payments-processor`, `payments-sf-writer`, `payments-ops-api`. All public traffic goes through the API Manager.
+- **Runtime: Java 21 + Spring Boot 4 (4.1.2) on Azure Container Apps (R2)**, four small apps built from one repository: `payments-intake`, `payments-processor`, `payments-sf-writer`, `payments-ops-api`. All public traffic goes through the API Manager.
+  - *Why Spring Boot 4 and not 3*: the assessment names Spring Boot 3, but the CI container scan (Trivy) found 40 fixable HIGH/CRITICAL vulnerabilities in Spring Boot 3.3.5 dependencies (Tomcat, Jackson, Spring MVC). Upgrading to the latest 3.5.x patch left 13, including a **critical Spring MVC CVE fixed only in Spring Framework 7** (Spring Boot 4). On an internet-facing payment endpoint, a known critical vulnerability is not acceptable, so the intake moved to Spring Boot 4.1.2 (a release with a few weeks in the field rather than the newest one). The migration was small: Jackson 3 packages in two classes and one test import; all 110 tests pass unchanged. The base image moved from Distroless Debian 12 to Debian 13 for the same reason (10 → 0 findings).
 - **Store: Azure Database for PostgreSQL Flexible Server (D1)**, General Purpose 2 vCores in prod with zone-redundant HA, Burstable in dev/test.
 
 The deciding factor is that FR4 and FR5 require **atomic "check, change state, record outbox"** semantics. A relational store gives that with one transaction, and Java/Spring makes that transaction explicit and testable. Mule would still need this store, plus licences, and its tests could not run in a public CI.
