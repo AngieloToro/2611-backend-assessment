@@ -1,0 +1,20 @@
+# Secret scanning configuration (gitleaks), used by the CI workflow.
+# The default rules apply everywhere. The allowlist only covers material that is fictional by design.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fictional sandbox secrets published by the assessment, and the PR under review"
+# The providers' documented sandbox test secrets (reference/providers/*/WEBHOOK_SPEC.md), used by tests and docs.
+regexes = [
+  '''qz_test_whsec_4f8a1c2e9b7d''',
+  '''andina_test_secret_7c3e19ab''',
+  '''aus_test_whsec_2b9d6f10''',
+]
+paths = [
+  # Provider specifications and samples (signatures and test vectors)
+  '''^reference/''',
+  # PR-214 is reviewed precisely because it commits a secret; the finding is documented in REVIEW.md
+  '''^pr-review/''',
+]

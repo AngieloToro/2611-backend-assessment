@@ -1,0 +1,147 @@
+# Continuous integration: runs on every pull request (and on main, to keep a green baseline).
+# Every job is a merge gate (required status checks on the main branch). Rationale: .github/workflows/README.md
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build and test (Java 21)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: practical
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Unit, contract and integration tests
+        run: ./mvnw -B verify
+      - name: Publish test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: practical/target/surefire-reports/
+          retention-days: 7
+      - name: Keep the JAR for the container job
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: practical/target/payments-intake-*.jar
+          retention-days: 1
+
+  contracts:
+    name: API contract lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint OpenAPI contract
+        run: npx --yes @redocly/cli@1.25.15 lint docs/api/webhooks.openapi.yaml
+      # The canonical event JSON Schema is validated against real events by CanonicalEventContractTest (build-test).
+
+  iac:
+    name: Bicep build and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Bicep CLI
+        run: az bicep install && echo "$HOME/.azure/bin" >> "$GITHUB_PATH"
+      - name: Lint (warnings fail the build)
+        run: |
+          bicep --version
+          bicep lint infra/main.bicep 2>&1 | tee lint.txt
+          if grep -qE ": (Warning|Error) " lint.txt; then exit 1; fi
+      - name: Build template
+        run: bicep build infra/main.bicep --stdout > /dev/null
+      - name: Resolve parameter files for every environment
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          for env in dev test prod; do
+            bicep build-params "infra/env/${env}.bicepparam" --stdout > /dev/null
+          done
+
+  secret-scan:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # scan the full history, not only the last commit
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  codeql:
+    name: Static analysis (CodeQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: java-kotlin
+          build-mode: none
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@v3
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: AGPL-3.0, GPL-3.0
+          comment-summary-in-pr: on-failure
+
+  container:
+    name: Container image build and vulnerability scan
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: practical/target
+      - name: Build image (not pushed from CI)
+        run: docker build -t payments-integration:${{ github.sha }} practical
+      - name: Scan image (fail on fixable HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: payments-integration:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

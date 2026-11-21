@@ -1,0 +1,98 @@
+# Continuous delivery: dev -> test -> prod. Defined, NOT executed in this assessment repository:
+# every job is skipped unless the repository variable AZURE_DEPLOY_ENABLED is 'true'.
+#
+# - Build once, promote the same image (tag = commit SHA) through every environment.
+# - Azure authentication with OpenID Connect (workload identity federation): no secret is stored in GitHub.
+#   Each GitHub environment has its own Entra ID app whose federated credential trusts only
+#   'repo:<owner>/<repo>:environment:<env>', so a dev job can never obtain prod credentials.
+# - Infrastructure and application are deployed together from infra/ (one Bicep deployment per environment).
+# - prod: what-if is published first; deployment waits for manual approval (GitHub environment protection rules).
+
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-main
+  cancel-in-progress: false # never interrupt a deployment in progress
+
+jobs:
+  build-image:
+    name: Build, test and publish image
+    if: vars.AZURE_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: build
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image-tag: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Verify (same gates as CI)
+        working-directory: practical
+        run: ./mvnw -B verify
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Build and push to the shared registry
+        run: |
+          az acr login --name "${{ vars.ACR_NAME }}"
+          IMAGE="${{ vars.ACR_NAME }}.azurecr.io/payments-integration:${{ github.sha }}"
+          docker build -t "$IMAGE" practical
+          docker push "$IMAGE"
+      - name: Software bill of materials
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ vars.ACR_NAME }}.azurecr.io/payments-integration:${{ github.sha }}
+
+  deploy-dev:
+    name: Deploy dev
+    needs: build-image
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: dev
+      image-tag: ${{ needs.build-image.outputs.image-tag }}
+    secrets: inherit
+
+  deploy-test:
+    name: Deploy test
+    needs: [build-image, deploy-dev]
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: test
+      image-tag: ${{ needs.build-image.outputs.image-tag }}
+    secrets: inherit
+
+  plan-prod:
+    name: Plan prod (what-if, no approval needed)
+    needs: [build-image, deploy-test]
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: prod-plan
+      parameters-environment: prod
+      image-tag: ${{ needs.build-image.outputs.image-tag }}
+      what-if-only: true
+    secrets: inherit
+
+  deploy-prod:
+    name: Deploy prod (manual approval)
+    needs: [build-image, plan-prod]
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: prod
+      image-tag: ${{ needs.build-image.outputs.image-tag }}
+    secrets: inherit

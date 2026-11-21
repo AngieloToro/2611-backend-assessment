@@ -1,0 +1,92 @@
+# Reusable deployment of one environment: what-if, deploy (infra + apps), verify.
+# Called by cd.yml. Protection rules (approvals, wait timers, branch restrictions) live on the GitHub environment.
+
+name: Deploy environment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment (holds the Azure ids and protection rules)
+        type: string
+        required: true
+      parameters-environment:
+        description: Bicep parameter file to use; defaults to the environment name
+        type: string
+        default: ''
+      image-tag:
+        type: string
+        required: true
+      what-if-only:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: ${{ inputs.environment }}
+    if: vars.AZURE_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ inputs.environment }}
+    env:
+      IMAGE_TAG: ${{ inputs.image-tag }}
+      PARAMS_ENV: ${{ inputs.parameters-environment != '' && inputs.parameters-environment || inputs.environment }}
+      ONCALL_WEBHOOK_URL: ${{ secrets.ONCALL_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: What-if (published in the job summary)
+        run: |
+          az deployment group what-if \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --template-file infra/main.bicep \
+            --parameters "infra/env/${PARAMS_ENV}.bicepparam" \
+            --result-format FullResourcePayloads \
+            --no-pretty-print > whatif.json
+          {
+            echo "### What-if for ${PARAMS_ENV} (image ${IMAGE_TAG})"
+            echo '```json'
+            cat whatif.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Guardrail: stop if the deployment would delete resources (mode is incremental, so deletes are unexpected).
+          if jq -e '.changes[] | select(.changeType == "Delete")' whatif.json > /dev/null; then
+            echo "::error::What-if contains deletions; review manually." && exit 1
+          fi
+
+      - name: Deploy infrastructure and applications
+        if: ${{ !inputs.what-if-only }}
+        run: |
+          az deployment group create \
+            --name "payments-${PARAMS_ENV}-${GITHUB_RUN_ID}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --template-file infra/main.bicep \
+            --parameters "infra/env/${PARAMS_ENV}.bicepparam" \
+            --mode Incremental
+
+      # Database migrations (Flyway, expand/contract) run at processor start-up with a dedicated migration role;
+      # moving them to a separate Container Apps job is listed as a next step in .github/workflows/README.md.
+
+      - name: Verify new revisions are healthy
+        if: ${{ !inputs.what-if-only }}
+        run: |
+          for app in intake processor sf-writer ops-api; do
+            name="mm-payments-${PARAMS_ENV}-${app}"
+            for attempt in $(seq 1 30); do
+              state=$(az containerapp revision list -n "$name" -g "${{ vars.AZURE_RESOURCE_GROUP }}" \
+                --query "[?properties.active].properties.healthState | [0]" -o tsv)
+              [ "$state" = "Healthy" ] && echo "$name healthy" && break
+              [ "$attempt" = "30" ] && echo "::error::$name not healthy" && exit 1
+              sleep 10
+            done
+          done
