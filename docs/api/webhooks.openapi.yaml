@@ -2,6 +2,9 @@ openapi: 3.0.3
 info:
   title: Meridian Mutual - Premium Payment Webhooks
   version: 1.0.0
+  license:
+    name: Proprietary - Meridian Mutual (fictional)
+    url: https://meridian.example/legal/api-terms
   description: |
     Webhook endpoints that payment providers call, published through the Meridian API Manager.
 
@@ -22,8 +25,11 @@ servers:
 security: []
 tags:
   - name: Quetzal Pagos (MX)
+    description: Mexico. Hex HMAC-SHA256 over `t.body`, 300 s tolerance, dedup by event `id`.
   - name: Andina Pay (CO)
+    description: Colombia. Base64 HMAC-SHA256 over `timestamp.body`, 600 s tolerance, dedup by `transaccion.id + estado`.
   - name: Austral Pagos (CL)
+    description: Chile. Hex HMAC-SHA256 over the raw body, no signed timestamp, dedup by `eventId`.
 paths:
   /quetzal:
     post:
