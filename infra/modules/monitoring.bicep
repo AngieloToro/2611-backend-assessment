@@ -188,6 +188,26 @@ var logAlerts = [
     window: 'PT10M'
   }
   {
+    name: 'no-traffic-by-country'
+    description: 'No notification accepted for a country in 30 minutes: provider, API Manager route or intake broken for that country (silent failure).'
+    severity: isProd ? 2 : 3
+    query: 'let countries = datatable(country: string)["MX", "CO", "CL"]; countries | join kind=leftouter (customMetrics | where name == "payments.intake.notifications" | extend country = tostring(customDimensions.country), outcome = tostring(customDimensions.outcome) | where outcome in ("accepted", "duplicate") | summarize accepted = sum(valueCount) by country) on country | extend missing = iff(isempty(accepted) or accepted == 0, 1, 0) | project country, missing'
+    measure: 'missing'
+    aggregation: 'Maximum'
+    threshold: 0
+    window: 'PT30M'
+  }
+  {
+    name: 'intake-not-accepting'
+    description: 'More than 1 % of webhook requests answered 5xx in 10 minutes, per provider: notifications are not being accepted and providers have limited retries (Andina: 5 in 24 h).'
+    severity: isProd ? 1 : 3
+    query: 'requests | where cloud_RoleName == "payments-intake" and url has "/payments/webhooks/v1/" | extend provider = extract("/webhooks/v1/([a-z]+)", 1, url) | summarize failedPercent = 100.0 * countif(toint(resultCode) >= 500) / count() by provider'
+    measure: 'failedPercent'
+    aggregation: 'Maximum'
+    threshold: 1
+    window: 'PT10M'
+  }
+  {
     name: 'salesforce-budget'
     description: 'Salesforce API usage of this integration above 70 % of its 150,000 calls / 24 h budget (writer halts at 80 %).'
     severity: isProd ? 2 : 3
