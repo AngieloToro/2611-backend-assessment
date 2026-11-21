@@ -42,4 +42,4 @@ Not included on purpose: code-coverage thresholds (they reward quantity over beh
 
 ## Supply-chain hardening still to do
 
-Third-party actions are referenced by major version tag for readability. In the real repository they would be **pinned to commit SHAs** and kept current by Dependabot, and images would be signed (cosign) and verified at deploy time. Database migrations would move from processor start-up to a dedicated Container Apps job run by the pipeline before the new revisions.
+The Trivy action is already **pinned to a commit SHA**: its tags were renamed (`0.28.0` → `v0.28.0`), which broke the first CI run and shows why tags are not a stable reference. The other third-party actions are referenced by major version tag for readability; in the real repository all of them would be pinned to commit SHAs and kept current by Dependabot, and images would be signed (cosign) and verified at deploy time. Database migrations would move from processor start-up to a dedicated Container Apps job run by the pipeline before the new revisions.
