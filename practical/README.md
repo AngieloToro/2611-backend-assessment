@@ -23,6 +23,16 @@ Requires a JDK 21 (`JAVA_HOME` pointing to it). Run from this folder (the tests 
 mvnw.cmd test        # Windows cmd / PowerShell
 ```
 
+If several JDKs are installed, select JDK 21 for the current shell first, e.g. in PowerShell:
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-21.0.13.102-hotspot"   # adjust to your JDK 21 path
+$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+.\mvnw.cmd clean test
+```
+
+The build enforces JDK 21 (`maven-enforcer-plugin`) and fails with an explicit message on older JDKs.
+
 Result at the time of submission: **110 tests, 0 failures**.
 
 Run locally (secrets are provided as environment variables, here the providers' sandbox secrets):
